@@ -43,6 +43,7 @@ class MembershipManager {
         if(this.member != null) {
 
             return new Result(ResultStatus.SUCCESS, member.getName() + ": " + member.getUUID().toString());
+
         } else {
 
             return new Result(ResultStatus.FAILED, "This node has no identity yet. Run the join command to give it one.");
@@ -84,6 +85,7 @@ class MembershipManager {
             mapMetadata.put("size", Integer.toString(size));
 
             result = new Result(ResultStatus.SUCCESS, "Cluster bootstrapped.");
+
         } else {
 
             result = new Result(ResultStatus.FAILED, "Cluster is already bootstrapped with a size of: " + mapMetadata.get("size"));
@@ -175,6 +177,7 @@ class MembershipManager {
                 this.removeMember(memberName, uuid);
 
                 result = new Result(ResultStatus.SUCCESS, memberName + " has been removed from the cluster.");
+
             } else {
 
                 result = new Result(ResultStatus.FAILED, "Member" + memberName + " is currently online.");
@@ -215,6 +218,7 @@ class MembershipManager {
 
                 this.startServices();
                 result = new Result(ResultStatus.SUCCESS, "Successfully recovered UUID for " + memberName);
+
             } else {
 
                 result = new Result(ResultStatus.FAILED, memberName + " is currently online.");
