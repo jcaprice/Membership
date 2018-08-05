@@ -12,7 +12,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-public class MembershipManager {
+class MembershipManager {
 
     private static final MembershipManager MANAGER = new MembershipManager();
 
@@ -33,12 +33,12 @@ public class MembershipManager {
         this.instance = Hazelcast.newHazelcastInstance(config);
     }
 
-    public static MembershipManager getManager() {
+    static MembershipManager getManager() {
 
         return MANAGER;
     }
 
-    public Result identify() {
+    Result identify() {
 
         if(this.member != null) {
 
@@ -49,7 +49,7 @@ public class MembershipManager {
         }
     }
 
-    public Result status() {
+    Result status() {
 
         Map<String, String> mapMetadata = instance.getMap("metadata");
         Map<String, StateEntry> mapClusterState = instance.getMap("clusterState");
@@ -73,7 +73,7 @@ public class MembershipManager {
         return new Result(ResultStatus.SUCCESS, statusString.toString());
     }
 
-    public synchronized Result bootstrap(int size) {
+    synchronized Result bootstrap(int size) {
 
         Result result;
 
@@ -92,7 +92,7 @@ public class MembershipManager {
         return result;
     }
 
-    public synchronized Result join(Member member) {
+    synchronized Result join(Member member) {
 
         Map<String, String> mapRegistry = instance.getMap("registry");
         Map<String, StateEntry> mapClusterState = instance.getMap("clusterState");
@@ -140,7 +140,7 @@ public class MembershipManager {
         return result;
     }
 
-    public synchronized Result leave() {
+    synchronized Result leave() {
 
         String memberName = this.member.getName();
 
@@ -159,7 +159,7 @@ public class MembershipManager {
         return new Result(ResultStatus.SUCCESS, memberName + " has left the cluster.");
     }
 
-    public synchronized Result remove(String memberName) {
+    synchronized Result remove(String memberName) {
 
         Result result;
 
@@ -187,7 +187,7 @@ public class MembershipManager {
         return result;
     }
 
-    public synchronized Result recover(String memberName) throws IOException {
+    synchronized Result recover(String memberName) throws IOException {
 
         Result result;
 
@@ -243,7 +243,7 @@ public class MembershipManager {
         mapClusterState.remove(uuid);
     }
 
-    public Result shutdown() {
+    Result shutdown() {
 
         this.heartbeatExecutorService.shutdown();
         this.leaderExecutorService.shutdown();
