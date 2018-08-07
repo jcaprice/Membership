@@ -14,16 +14,20 @@ import java.util.concurrent.TimeUnit;
 
 class MembershipManager {
 
+    private static final int JOIN_DELAY = 10;
+
     private static final MembershipManager MANAGER = new MembershipManager();
 
     private static HazelcastInstance instance;
     private static Member member;
 
+    private ScheduledExecutorService finalizeJoinService = Executors.newSingleThreadScheduledExecutor();
+
     private Runnable heartbeatService;
-    private ScheduledExecutorService heartbeatExecutorService;
+    private ScheduledExecutorService heartbeatExecutorService = Executors.newSingleThreadScheduledExecutor();
 
     private Runnable leaderService;
-    private ScheduledExecutorService leaderExecutorService;
+    private ScheduledExecutorService leaderExecutorService = Executors.newSingleThreadScheduledExecutor();
 
     private MembershipManager() {
 
@@ -74,27 +78,7 @@ class MembershipManager {
         return new Result(ResultStatus.SUCCESS, statusString.toString());
     }
 
-    synchronized Result bootstrap(int size) {
-
-        Result result;
-
-        Map<String, String> mapMetadata = instance.getMap("metadata");
-
-        if(!mapMetadata.containsKey("size")) {
-
-            mapMetadata.put("size", Integer.toString(size));
-
-            result = new Result(ResultStatus.SUCCESS, "Cluster bootstrapped.");
-
-        } else {
-
-            result = new Result(ResultStatus.FAILED, "Cluster is already bootstrapped with a size of: " + mapMetadata.get("size"));
-        }
-
-        return result;
-    }
-
-    synchronized Result join(Member member) {
+    synchronized Result stageJoin(Member member) {
 
         Map<String, String> mapRegistry = instance.getMap("registry");
         Map<String, StateEntry> mapClusterState = instance.getMap("clusterState");
@@ -103,26 +87,28 @@ class MembershipManager {
         String name = member.getName();
         String uuidString = member.getUUID().toString();
 
+        // Check to see if stageJoin has been run already
         if(this.member == null) {
 
+            // Make sure a node with this name has not been added to the cluster.
             if (!mapRegistry.containsKey(name)) {
 
+                // Add node to registry and add JOINING state to clusterState Map
                 mapRegistry.put(name, uuidString);
-                StateEntry state = new StateEntry(name, ClusterStatus.ONLINE, 0L);
+                StateEntry state = new StateEntry(name, ClusterStatus.JOINING, 0L);
                 mapClusterState.put(uuidString, state);
 
                 this.member = member;
 
-                startServices();
-
+                // Persist node UUID to disk and schedule job to finalize join
                 try {
 
                     this.persistUUID(this.member.getName());
 
-                    if(this.shouldPrintMessage()) {
+                    Runnable task = () ->  finalizeJoin();
 
-                        System.out.println("We are Started!");
-                    }
+                    finalizeJoinService.schedule(task, JOIN_DELAY, TimeUnit.SECONDS);
+                    finalizeJoinService.shutdown();
 
                     result = new Result(ResultStatus.SUCCESS, member.toString() + " is " + state.getStatus().toString());
 
@@ -130,10 +116,12 @@ class MembershipManager {
 
                     result = new Result(ResultStatus.FAILED, "Error persisting UUID.");
                 }
+
             } else {
 
                 result = new Result(ResultStatus.FAILED, "This member name already exists in the cluster with a different UUID.");
             }
+
         } else {
 
             result = new Result(ResultStatus.FAILED, "This node, " + this.member.getName() + ", has already been joined to the cluster.");
@@ -142,6 +130,66 @@ class MembershipManager {
         return result;
     }
 
+    synchronized Result recover(String memberName) throws IOException {
+
+        Result result;
+
+        IMap<String, StateEntry> mapClusterState = instance.getMap("clusterState");
+
+        BufferedReader br = new BufferedReader(new FileReader(memberName));
+
+        StringBuilder sb = new StringBuilder();
+        String line = br.readLine();
+
+        if (line != null) {
+
+            sb.append(line);
+        }
+
+        String uuid = sb.toString();
+
+        //Check to see that recovered UUID for this node is part of the cluster
+        if (mapClusterState.containsKey(uuid)) {
+
+            this.member = new Member(memberName, sb.toString());
+
+            // If the node is marked OFFLINE, bring it ONLINE and start services
+            if (mapClusterState.get(uuid).getStatus() == ClusterStatus.OFFLINE) {
+
+                StateEntry state = new StateEntry(member.getName(), ClusterStatus.ONLINE, 0L);
+                mapClusterState.put(member.getUUID().toString(), state);
+
+                this.startServices();
+
+                result = new Result(ResultStatus.SUCCESS, "Successfully recovered UUID for " + memberName);
+
+            }
+
+            // If the node was JOINING, re-issue JOIN
+            else if (mapClusterState.get(uuid).getStatus() == ClusterStatus.JOINING){
+
+                Runnable task = () ->  finalizeJoin();
+
+                finalizeJoinService.schedule(task, JOIN_DELAY, TimeUnit.SECONDS);
+                finalizeJoinService.shutdown();
+
+                result = new Result(ResultStatus.SUCCESS, "Successfully recovered UUID for " + memberName + " and rejoining cluster.");
+
+            } else {
+
+                result = new Result(ResultStatus.FAILED, memberName + " is currently online.");
+            }
+        } else {
+
+            result = new Result(ResultStatus.FAILED, memberName + " does not exist.");
+        }
+
+        br.close();
+
+        return result;
+    }
+
+    // Remove this node from the cluster
     synchronized Result leave() {
 
         String memberName = this.member.getName();
@@ -161,18 +209,22 @@ class MembershipManager {
         return new Result(ResultStatus.SUCCESS, memberName + " has left the cluster.");
     }
 
+    // Remove the specified node from the cluster
     synchronized Result remove(String memberName) {
 
         Result result;
 
-        Map<String, String> mapRegistry = instance.getMap("registry");
-        Map<String, StateEntry> mapClusterState = instance.getMap("clusterState");
+        IMap<String, String> mapRegistry = instance.getMap("registry");
+        IMap<String, StateEntry> mapClusterState = instance.getMap("clusterState");
 
+        // Check to see if the node being removed is a member of the cluster
         if(mapRegistry.containsKey(memberName)) {
 
             String uuid = mapRegistry.get(memberName);
+            ClusterStatus status = mapClusterState.get(uuid).getStatus();
 
-            if (mapClusterState.get(uuid).getStatus() == ClusterStatus.OFFLINE) {
+            // Make sure the node being removed has been marked OFFLINE or JOINING
+            if ((status == ClusterStatus.OFFLINE) || (status == ClusterStatus.JOINING)) {
 
                 this.removeMember(memberName, uuid);
 
@@ -190,63 +242,7 @@ class MembershipManager {
         return result;
     }
 
-    synchronized Result recover(String memberName) throws IOException {
-
-        Result result;
-
-        Map<String, StateEntry> mapClusterState = instance.getMap("clusterState");
-
-        BufferedReader br = new BufferedReader(new FileReader(memberName));
-
-        StringBuilder sb = new StringBuilder();
-        String line = br.readLine();
-
-        if (line != null) {
-            sb.append(line);
-        }
-
-        String uuid = sb.toString();
-
-        if (mapClusterState.containsKey(uuid)) {
-
-            if (mapClusterState.get(uuid).getStatus() == ClusterStatus.OFFLINE) {
-
-                this.member = new Member(memberName, sb.toString());
-
-                StateEntry state = new StateEntry(member.getName(), ClusterStatus.ONLINE, 0L);
-                mapClusterState.put(member.getUUID().toString(), state);
-
-                this.startServices();
-                result = new Result(ResultStatus.SUCCESS, "Successfully recovered UUID for " + memberName);
-
-            } else {
-
-                result = new Result(ResultStatus.FAILED, memberName + " is currently online.");
-            }
-        } else {
-
-            result = new Result(ResultStatus.FAILED, memberName + " does not exist.");
-        }
-
-        if (this.shouldPrintMessage()) {
-
-            System.out.println("We are Started!");
-        }
-
-        br.close();
-
-        return result;
-    }
-
-    private void removeMember(String name, String uuid) {
-
-        Map<String, String> mapRegistry = instance.getMap("registry");
-        Map<String, StateEntry> mapClusterState = instance.getMap("clusterState");
-
-        mapRegistry.remove(name);
-        mapClusterState.remove(uuid);
-    }
-
+    // Stop services and shut down Hazelcast instance
     Result shutdown() {
 
         this.heartbeatExecutorService.shutdown();
@@ -259,6 +255,7 @@ class MembershipManager {
 
     /******************************************************************************************************************/
 
+    // Write UUID to disk so nodes that re-start can be recovered
     private void persistUUID(String memberName) throws IOException {
 
         BufferedWriter writer = new BufferedWriter(new FileWriter(memberName));
@@ -266,51 +263,37 @@ class MembershipManager {
         writer.close();
     }
 
+    // Change node status to ONLINE and start services
+    private void finalizeJoin() {
+
+        String uuidString = this.member.getUUID().toString();
+
+        IMap<String, StateEntry> mapClusterState = instance.getMap("clusterState");
+
+        StateEntry state = mapClusterState.get(uuidString);
+
+        mapClusterState.set(uuidString, state.updateStatus(ClusterStatus.ONLINE));
+
+        startServices();
+    }
+
+    // Start Heartbeat and Leader services
     private void startServices() {
 
         this.heartbeatService = new HeartbeatService(this.instance, this.member);
-        this.heartbeatExecutorService = Executors.newSingleThreadScheduledExecutor();
         this.heartbeatExecutorService.scheduleAtFixedRate(heartbeatService, 0, 10, TimeUnit.SECONDS);
 
         this.leaderService = new LeaderService(this.instance, this.member);
-        this.leaderExecutorService = Executors.newSingleThreadScheduledExecutor();
         this.leaderExecutorService.scheduleAtFixedRate(leaderService, 0, 10, TimeUnit.SECONDS);
     }
 
-    private boolean shouldPrintMessage() {
+    // Remove node from registry and clusterState Hazelcast maps
+    private void removeMember(String name, String uuid) {
 
-        Map<String, String> mapMetadata = instance.getMap("metadata");
+        IMap<String, String> mapRegistry = instance.getMap("registry");
+        IMap<String, StateEntry> mapClusterState = instance.getMap("clusterState");
 
-        boolean anyOffline = false;
-        boolean returnValue = false;
-        boolean isPrinted = Boolean.TRUE.equals(mapMetadata.get("printed"));
-
-        int expectedClusterSize = Integer.parseInt(mapMetadata.get("size"));
-
-        if(!isPrinted) {
-
-            Map<String, StateEntry> mapClusterState = instance.getMap("clusterState");
-
-            if (mapClusterState.size() == expectedClusterSize) {
-
-                for (Map.Entry<String, StateEntry> entry : mapClusterState.entrySet()) {
-
-                    StateEntry state = entry.getValue();
-
-                    if (state.getStatus() == ClusterStatus.OFFLINE) {
-
-                        anyOffline = true;
-                    }
-                }
-
-                if (!anyOffline) {
-
-                    mapMetadata.put("printed", String.valueOf(true));
-                    returnValue = true;
-                }
-            }
-        }
-
-        return returnValue;
+        mapRegistry.remove(name);
+        mapClusterState.remove(uuid);
     }
 }

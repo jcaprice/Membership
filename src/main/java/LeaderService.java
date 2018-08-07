@@ -23,7 +23,14 @@ public class LeaderService implements Runnable {
 
         if(this.isLeader) {
 
-            this.maybeChangeStatus();
+            Map<String, String> mapMetadata = instance.getMap("metadata");
+
+            maybeChangeStatus();
+
+            if (!Boolean.parseBoolean(mapMetadata.get("printed"))) {
+
+                maybePrintMessage();
+            }
         }
     }
 
@@ -45,7 +52,7 @@ public class LeaderService implements Runnable {
 
             if ((currentTime - leaderStateEntry.getHeartbeat()) > NODE_TIMEOUT_SECONDS) {
 
-                this.becomeLeader();
+                becomeLeader();
             }
         }
     }
@@ -87,11 +94,38 @@ public class LeaderService implements Runnable {
             if (((currentTime - state.getHeartbeat()) > NODE_TIMEOUT_SECONDS) && entry.getValue().getStatus() == ClusterStatus.ONLINE) {
 
                 mapClusterState.set(entry.getKey(), state.updateStatus(ClusterStatus.OFFLINE));
+
             } else if (((currentTime - state.getHeartbeat()) <= NODE_TIMEOUT_SECONDS) && entry.getValue().getStatus() == ClusterStatus.OFFLINE) {
 
                 mapClusterState.set(entry.getKey(), state.updateStatus(ClusterStatus.ONLINE));
             }
         }
+    }
+
+    private void maybePrintMessage() {
+
+        Map<String, String> mapMetadata = instance.getMap("metadata");
+
+        boolean areAllOnline = true;
+
+        Map<String, StateEntry> mapClusterState = instance.getMap("clusterState");
+
+        for (Map.Entry<String, StateEntry> entry : mapClusterState.entrySet()) {
+
+            StateEntry state = entry.getValue();
+
+            if (state.getStatus() != ClusterStatus.ONLINE) {
+
+                areAllOnline = false;
+            }
+        }
+
+        if (areAllOnline) {
+
+            mapMetadata.put("printed", String.valueOf(true));
+            System.out.println("We are Started!");
+        }
+
     }
 }
 

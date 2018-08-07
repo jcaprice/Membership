@@ -2,7 +2,8 @@
 
 This application emulates some of the behavior commonly found in the cluster membership components of a distributed
 database. It uses an embedded instance of Hazelcast, that discovers peers via multicast, for distributed cluster state.
-Once all nodes are joined to the cluster (and are all ONLINE) a "We are Started!" message will be printed to the console.
+Once all nodes are joined to the cluster (and are all ONLINE) a "We are Started!" message will be printed to the console
+on the leader node.
 
 ## Commands
 
@@ -38,22 +39,6 @@ f6e61ec6-380c-4857-8f1a-22c7c22193d7  member3             ONLINE  1533341429
 4823cca9-54a8-44a3-8a7e-bbd7875037f2  member4             ONLINE  1533341425 
 b85c3aca-28a3-42fb-b2f7-4ae9f55a63b0  member2             ONLINE  1533341424
 ```
-
-### bootstrap
-
-**Parameters**
-
--s (size). The size of the cluster.
-
-**Description**
-
-Bootstrap cluster with a cluster size.
-
-**Example**
-
-`> bootstrap -s 5`
-
-`SUCCESS: Cluster bootstrapped.`
 
 ### join
 

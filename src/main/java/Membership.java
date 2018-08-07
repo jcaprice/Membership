@@ -12,9 +12,6 @@ public class Membership {
 
         @Parameter(names = {"-n", "--name"})
         public String name;
-
-        @Parameter(names = {"-s", "--size"})
-        public int size;
     }
 
     public static void main(String[] args) {
@@ -49,20 +46,14 @@ public class Membership {
                     Result statusResult = membershipManager.status();
                     System.out.println(statusResult.getMessage());
                     break;
-                case "bootstrap":
-                    if(arguments.size == 0) {
-                        System.out.println("Please specify an initial cluster size using the '-s' parameter.");
-
-                    } else {
-                        Result bootstrapResult = membershipManager.bootstrap(arguments.size);
-                        System.out.println(bootstrapResult.toString());
-                    }
-                    break;
                 case "join":
                     if (arguments.name == null) {
+
                         System.out.println("Please specify a node name using the '-n' parameter.");
+
                     } else {
-                        Result joinResult = membershipManager.join(new Member(arguments.name));
+
+                        Result joinResult = membershipManager.stageJoin(new Member(arguments.name));
                         System.out.println(joinResult.toString());
                     }
                     break;
@@ -72,17 +63,24 @@ public class Membership {
                     break;
                 case "remove":
                     if (arguments.name == null) {
+
                         System.out.println("Please specify a node name using the '-n' parameter.");
+
                     } else {
+
                         Result removeResult = membershipManager.remove(arguments.name);
                         System.out.println(removeResult.toString());
                     }
                     break;
                 case "recover":
                     if (arguments.name == null) {
+
                         System.out.println("Please specify a node name using the '-n' parameter.");
+
                     } else {
+
                         try {
+
                             Result recoverResult = membershipManager.recover(arguments.name);
                             System.out.println(recoverResult.toString());
                         }
@@ -97,9 +95,10 @@ public class Membership {
                     Result shutdownResult = membershipManager.shutdown();
                     System.out.println(shutdownResult.toString());
                     scanner.close();
+                    System.exit(0);
                     break;
                 default:
-                    System.out.println("No available command specified. The available commands are: status, bootstrap, join, leave, remove, and shutdown.");
+                    System.out.println("No available command specified. The available commands are: status, join, leave, remove, and shutdown.");
             }
         }
     }
