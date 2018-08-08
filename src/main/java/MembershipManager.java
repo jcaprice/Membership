@@ -200,6 +200,8 @@ class MembershipManager {
 
         this.removeMember(memberName, uuid);
 
+        stopServices();
+
         File file = new File(memberName);
 
         file.delete();
@@ -245,8 +247,7 @@ class MembershipManager {
     // Stop services and shut down Hazelcast instance
     Result shutdown() {
 
-        this.heartbeatExecutorService.shutdown();
-        this.leaderExecutorService.shutdown();
+        stopServices();
 
         instance.shutdown();
 
@@ -285,6 +286,19 @@ class MembershipManager {
 
         this.leaderService = new LeaderService(this.instance, this.member);
         this.leaderExecutorService.scheduleAtFixedRate(leaderService, 0, 10, TimeUnit.SECONDS);
+    }
+
+    private void stopServices() {
+
+        if(!this.heartbeatExecutorService.isShutdown()) {
+
+            this.heartbeatExecutorService.shutdown();
+        }
+
+        if(!this.leaderExecutorService.isShutdown()) {
+
+            this.leaderExecutorService.shutdown();
+        }
     }
 
     // Remove node from registry and clusterState Hazelcast maps

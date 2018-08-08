@@ -78,7 +78,7 @@ Instruct the running node to leave the cluster. Must be run on the node leaving 
 **Description**
 
 Remove the specified node from the cluster. In order for a node to be removed it must be part of the cluster and must
-be marked OFFLINE in the status output.
+be marked OFFLINE or JOINING (but not currently online) in the status output.
 
 **Example**
 
